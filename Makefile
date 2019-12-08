@@ -1,2 +1,2 @@
 build: main.cpp
-	g++ main.cpp -o solver.out
+	g++ main.cpp -o solver.out -fopenmp

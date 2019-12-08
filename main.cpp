@@ -1,6 +1,7 @@
-#include "iostream"
-#include "cstring"
-#include "cmath"
+#include <iostream>
+#include <cstring>
+#include <cmath>
+#include <omp.h>
 
 using namespace std;
 
@@ -79,8 +80,28 @@ double dotSeq(double* x, double* y, int N)
     return prod;
 }
 
+double dotPar(double* x, double* y, int N)
+{
+    double prod = 0;
+
+    #pragma omp parallel for reduction (+:prod)
+    for (int i = 0; i < N; i++) {
+        prod += x[i] * y[i];
+    }
+
+    return prod;
+}
+
 void axpbySeq(double a, double* x, double b, double* y, double* z, int N)
 {
+    for (int i = 0; i < N; i++) {
+        z[i] = a * x[i] + b * y[i];
+    }
+}
+
+void axpbyPar(double a, double* x, double b, double* y, double* z, int N)
+{
+    #pragma omp parallel for
     for (int i = 0; i < N; i++) {
         z[i] = a * x[i] + b * y[i];
     }
@@ -92,6 +113,23 @@ void SpMVSeq(double* x, int (*Col)[7], double (*Val)[7], double* z, int N)
         z[i] = 0;
     }
 
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < 7; j++) {
+            if (Col[i][j] != -1) {
+                z[Col[i][j]] += Val[i][j] * x[i];
+            }
+        }
+    }
+}
+
+void SpMVPar(double* x, int (*Col)[7], double (*Val)[7], double* z, int N)
+{
+    #pragma omp parallel for
+    for (int i = 0; i < N; i++) {
+        z[i] = 0;
+    }
+
+    #pragma omp parallel for
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < 7; j++) {
             if (Col[i][j] != -1) {
@@ -151,6 +189,27 @@ void test(bool par, int Nx, int Ny, int Nz)
         }
 
         SpMVL2 = sqrt(SpMVL2);
+    } else {
+        // par dot
+        dot = dotPar(x, y, N);
+
+        // par axpby
+        axpbyPar(a, x, b, y, z, N);
+        for (int i = 0; i < N; i++) {
+            axpbySum += z[i];
+            axpbyL2 += z[i] * z[i];
+        }
+
+        axpbyL2 = sqrt(axpbyL2);
+
+        // par SpMV
+        SpMVPar(x, Col, Val, z, N);
+        for (int i = 0; i < N; i++) {
+            SpMVSum += z[i];
+            SpMVL2 += z[i] * z[i];
+        }
+
+        SpMVL2 = sqrt(SpMVL2);
     }
 
     cout << "dot: " << dot << endl;
@@ -171,7 +230,7 @@ void test(bool par, int Nx, int Ny, int Nz)
     delete[] Val;
 }
 
-void solve(int Nx, int Ny, int Nz, double tol, int maxit, bool qa)
+void solveSeq(int Nx, int Ny, int Nz, double tol, int maxit, bool qa)
 {
     int N = Nx * Ny * Nz;
 
@@ -194,6 +253,7 @@ void solve(int Nx, int Ny, int Nz, double tol, int maxit, bool qa)
 
     if (qa) {
         test(false, Nx, Ny, Nz);
+        test(true, Nx, Ny, Nz);
     }
 
     // gen left part
@@ -256,6 +316,92 @@ void solve(int Nx, int Ny, int Nz, double tol, int maxit, bool qa)
     delete[] r;
 }
 
+void solvePar(int Nx, int Ny, int Nz, double tol, int maxit, bool qa)
+{
+    int N = Nx * Ny * Nz;
+
+    int (*Col)[7] = new int[N][7];
+    double (*Val)[7] = new double[N][7];
+    double* x = new double[N];
+    double* b = new double[N];
+
+    double* p = new double[N];
+    double* q = new double[N];
+    double* z = new double[N];
+    double* r = new double[N];
+    int (*ColM)[7] = new int[N][7];
+    double (*ValM)[7] = new double[N][7];
+
+    double alpha;
+    double beta;
+    double ro;
+    double roOld;
+
+    if (qa) {
+        test(false, Nx, Ny, Nz);
+        test(true, Nx, Ny, Nz);
+    }
+
+    // gen left part
+    generateMatrix(Nx, Ny, Nz, Col, Val);
+
+    // gen right part, nullify first guess and fill in M
+    for (int i = 0; i < N; i++) {
+        x[i] = 0;
+        b[i] = cos(i);
+
+        for (int j = 0; j < 7; j++) {
+            if (j == 3) {
+                ColM[i][j] = i;
+                ValM[i][j] = 1 / Val[i][j];
+            } else {
+                ColM[i][j] = -1;
+                ValM[i][j] = 0;
+            }
+        }
+    }
+
+    // main algorithm
+    SpMVPar(x, Col, Val, r, N);
+    axpbyPar(1, b, -1, r, r, N);
+
+    for (int i = 1; i <= maxit; i++) {
+        SpMVPar(r, ColM, ValM, z, N);
+        roOld = ro;
+        ro = dotPar(r, z, N);
+
+        if (i == 1) {
+            axpbyPar(0, z, 1, z, p, N);
+        } else {
+            beta = ro / roOld;
+            axpbyPar(1, z, beta, p, p, N);
+        }
+
+        SpMVPar(p, Col, Val, q, N);
+        alpha = ro / dotPar(p, q, N);
+        axpbyPar(1, x, alpha, p, x, N);
+        axpbyPar(1, r, -alpha, q, r, N);
+
+        cout << ro << endl;
+
+        if (ro < tol) {
+            break;
+        }
+    }
+
+    // clean up
+    delete[] Col;
+    delete[] Val;
+    delete[] ColM;
+    delete[] ValM;
+    delete[] b;
+    delete[] x;
+    delete[] p;
+    delete[] q;
+    delete[] z;
+    delete[] r;
+} 
+
 int main(int argc, char** argv)
 {
     int Nx;
@@ -294,7 +440,8 @@ int main(int argc, char** argv)
         }
     }
 
-    solve(Nx, Ny, Nz, tol, maxit, qa);
+    omp_set_num_threads(nt);
+    solvePar(Nx, Ny, Nz, tol, maxit, qa);
 
     return 0;
 }
