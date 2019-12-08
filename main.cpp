@@ -1,4 +1,5 @@
 #include "iostream"
+#include "cstring"
 #include "cmath"
 
 using namespace std;
@@ -161,21 +162,139 @@ void test(bool par, int Nx, int Ny, int Nz)
     cout << "SpMV - L2: " << SpMVL2 << endl;
 
     cout << "==== End ====" << endl;
+
+    // clean up
+    delete[] x;
+    delete[] y;
+    delete[] z;
+    delete[] Col;
+    delete[] Val;
 }
 
-int main()
+void solve(int Nx, int Ny, int Nz, double tol, int maxit, bool qa)
 {
-    int Nx = 3;
-    int Ny = 3;
-    int Nz = 3;
-    //int N = Nx * Ny * Nz;
+    int N = Nx * Ny * Nz;
 
-    //int (*Col)[7] = new int[N][7];
-    //double (*Val)[7] = new double[N][7];
+    int (*Col)[7] = new int[N][7];
+    double (*Val)[7] = new double[N][7];
+    double* x = new double[N];
+    double* b = new double[N];
 
-    //generateMatrix(Nx, Ny, Nz, Col, Val);
+    double* p = new double[N];
+    double* q = new double[N];
+    double* z = new double[N];
+    double* r = new double[N];
+    int (*ColM)[7] = new int[N][7];
+    double (*ValM)[7] = new double[N][7];
 
-    test(false, Nx, Ny, Nz);
+    double alpha;
+    double beta;
+    double ro;
+    double roOld;
+
+    if (qa) {
+        test(false, Nx, Ny, Nz);
+    }
+
+    // gen left part
+    generateMatrix(Nx, Ny, Nz, Col, Val);
+
+    // gen right part, nullify first guess and fill in M
+    for (int i = 0; i < N; i++) {
+        x[i] = 0;
+        b[i] = cos(i);
+
+        for (int j = 0; j < 7; j++) {
+            if (j == 3) {
+                ColM[i][j] = i;
+                ValM[i][j] = 1 / Val[i][j];
+            } else {
+                ColM[i][j] = -1;
+                ValM[i][j] = 0;
+            }
+        }
+    }
+
+    // main algorithm
+    SpMVSeq(x, Col, Val, r, N);
+    axpbySeq(1, b, -1, r, r, N);
+
+    for (int i = 1; i <= maxit; i++) {
+        SpMVSeq(r, ColM, ValM, z, N);
+        roOld = ro;
+        ro = dotSeq(r, z, N);
+
+        if (i == 1) {
+            axpbySeq(0, z, 1, z, p, N);
+        } else {
+            beta = ro / roOld;
+            axpbySeq(1, z, beta, p, p, N);
+        }
+
+        SpMVSeq(p, Col, Val, q, N);
+        alpha = ro / dotSeq(p, q, N);
+        axpbySeq(1, x, alpha, p, x, N);
+        axpbySeq(1, r, -alpha, q, r, N);
+
+        cout << ro << endl;
+
+        if (ro < tol) {
+            break;
+        }
+    }
+
+    // clean up
+    delete[] Col;
+    delete[] Val;
+    delete[] ColM;
+    delete[] ValM;
+    delete[] b;
+    delete[] x;
+    delete[] p;
+    delete[] q;
+    delete[] z;
+    delete[] r;
+}
+
+int main(int argc, char** argv)
+{
+    int Nx;
+    int Ny;
+    int Nz;
+    double tol;
+    int maxit;
+    int nt;
+    bool qa = false;
+
+    if (argc < 13) {
+        cout << "-nx <int> -ny <int> -nz <int>" << endl;
+        cout << "-tol <double>" << endl;
+        cout << "-maxit <int>" << endl;
+        cout << "-nt <int>" << endl;
+        cout << "-qa" << endl;
+
+        return 0;
+    }
+
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-nx")) {
+            Nx = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "-ny")) {
+            Ny = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "-nz")) {
+            Nz = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "-tol")) {
+            tol = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "-maxit")) {
+            maxit = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "-nt")) {
+            nt = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "-qa")) {
+            qa = true;
+        }
+    }
+
+    solve(Nx, Ny, Nz, tol, maxit, qa);
 
     return 0;
 }
