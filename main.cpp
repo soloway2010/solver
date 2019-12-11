@@ -151,10 +151,13 @@ void test(bool par, int Nx, int Ny, int Nz)
     double (*Val)[7] = new double[N][7];
 
     double dot;
+    double dotTime;
     double axpbySum = 0;
     double axpbyL2 = 0;
+    double axpbyTime;
     double SpMVSum = 0;
     double SpMVL2 = 0;
+    double SpMVTime;
 
     // fill in test data
     generateMatrix(Nx, Ny, Nz, Col, Val);
@@ -170,10 +173,15 @@ void test(bool par, int Nx, int Ny, int Nz)
     // ordinary operations testing
     if (!par) {
         // seq dot
+        dotTime = omp_get_wtime();
         dot = dotSeq(x, y, N);
+        dotTime = omp_get_wtime() - dotTime;
 
         // seq axpby
+        axpbyTime = omp_get_wtime();
         axpbySeq(a, x, b, y, z, N);
+        axpbyTime = omp_get_wtime() - axpbyTime;
+
         for (int i = 0; i < N; i++) {
             axpbySum += z[i];
             axpbyL2 += z[i] * z[i];
@@ -182,7 +190,9 @@ void test(bool par, int Nx, int Ny, int Nz)
         axpbyL2 = sqrt(axpbyL2);
 
         // seq SpMV
+        SpMVTime = omp_get_wtime();
         SpMVSeq(x, Col, Val, z, N);
+        SpMVTime = omp_get_wtime() - SpMVTime;
         for (int i = 0; i < N; i++) {
             SpMVSum += z[i];
             SpMVL2 += z[i] * z[i];
@@ -191,10 +201,14 @@ void test(bool par, int Nx, int Ny, int Nz)
         SpMVL2 = sqrt(SpMVL2);
     } else {
         // par dot
+        dotTime = omp_get_wtime();
         dot = dotPar(x, y, N);
+        dotTime = omp_get_wtime() - dotTime;
 
         // par axpby
+        axpbyTime = omp_get_wtime();
         axpbyPar(a, x, b, y, z, N);
+        axpbyTime = omp_get_wtime() - axpbyTime;
         for (int i = 0; i < N; i++) {
             axpbySum += z[i];
             axpbyL2 += z[i] * z[i];
@@ -203,7 +217,9 @@ void test(bool par, int Nx, int Ny, int Nz)
         axpbyL2 = sqrt(axpbyL2);
 
         // par SpMV
+        SpMVTime = omp_get_wtime();
         SpMVPar(x, Col, Val, z, N);
+        SpMVTime = omp_get_wtime() - SpMVTime;
         for (int i = 0; i < N; i++) {
             SpMVSum += z[i];
             SpMVL2 += z[i] * z[i];
@@ -213,12 +229,15 @@ void test(bool par, int Nx, int Ny, int Nz)
     }
 
     cout << "dot: " << dot << endl;
-    
+    cout << "dot - time: " << dotTime << endl;
+    cout << endl;
     cout << "axpby - sum: " << axpbySum << endl;
     cout << "axpby - L2: " << axpbyL2 << endl;
-
+    cout << "axpby - time: " << axpbyTime << endl;
+    cout << endl;
     cout << "SpMV - sum: " << SpMVSum << endl;
     cout << "SpMV - L2: " << SpMVL2 << endl;
+    cout << "SpMV - time: " << SpMVTime << endl;
 
     cout << "==== End ====" << endl;
 
@@ -251,9 +270,11 @@ void solveSeq(int Nx, int Ny, int Nz, double tol, int maxit, bool qa)
     double ro;
     double roOld;
 
+    int i;
+    double time;
+
     if (qa) {
         test(false, Nx, Ny, Nz);
-        test(true, Nx, Ny, Nz);
     }
 
     // gen left part
@@ -279,7 +300,8 @@ void solveSeq(int Nx, int Ny, int Nz, double tol, int maxit, bool qa)
     SpMVSeq(x, Col, Val, r, N);
     axpbySeq(1, b, -1, r, r, N);
 
-    for (int i = 1; i <= maxit; i++) {
+    time = omp_get_wtime();
+    for (i = 1; i <= maxit; i++) {
         SpMVSeq(r, ColM, ValM, z, N);
         roOld = ro;
         ro = dotSeq(r, z, N);
@@ -296,12 +318,16 @@ void solveSeq(int Nx, int Ny, int Nz, double tol, int maxit, bool qa)
         axpbySeq(1, x, alpha, p, x, N);
         axpbySeq(1, r, -alpha, q, r, N);
 
-        cout << ro << endl;
-
         if (ro < tol) {
             break;
         }
     }
+    time = omp_get_wtime() - time;
+
+    cout << "***** Seq Result *****" << endl;
+    cout << "Main cycle time: " << time << endl;
+    cout << "Iterations: " << i << endl;
+    cout << "Error: " << ro << endl;
 
     // clean up
     delete[] Col;
@@ -337,8 +363,10 @@ void solvePar(int Nx, int Ny, int Nz, double tol, int maxit, bool qa)
     double ro;
     double roOld;
 
+    int i;
+    double time;
+
     if (qa) {
-        test(false, Nx, Ny, Nz);
         test(true, Nx, Ny, Nz);
     }
 
@@ -365,7 +393,8 @@ void solvePar(int Nx, int Ny, int Nz, double tol, int maxit, bool qa)
     SpMVPar(x, Col, Val, r, N);
     axpbyPar(1, b, -1, r, r, N);
 
-    for (int i = 1; i <= maxit; i++) {
+    time = omp_get_wtime();
+    for (i = 1; i <= maxit; i++) {
         SpMVPar(r, ColM, ValM, z, N);
         roOld = ro;
         ro = dotPar(r, z, N);
@@ -382,12 +411,16 @@ void solvePar(int Nx, int Ny, int Nz, double tol, int maxit, bool qa)
         axpbyPar(1, x, alpha, p, x, N);
         axpbyPar(1, r, -alpha, q, r, N);
 
-        cout << ro << endl;
-
         if (ro < tol) {
             break;
         }
     }
+    time = omp_get_wtime() - time;
+
+    cout << "***** Par Result *****" << endl;
+    cout << "Main cycle time: " << time << endl;
+    cout << "Iterations: " << i << endl;
+    cout << "Error: " << ro << endl;
 
     // clean up
     delete[] Col;
@@ -441,6 +474,8 @@ int main(int argc, char** argv)
     }
 
     omp_set_num_threads(nt);
+    solveSeq(Nx, Ny, Nz, tol, maxit, qa);
+    cout << endl;
     solvePar(Nx, Ny, Nz, tol, maxit, qa);
 
     return 0;
