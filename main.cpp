@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
+#include <cstdlib>
 #include <omp.h>
 
 using namespace std;
