@@ -112,12 +112,10 @@ void SpMVSeq(double* x, int (*Col)[7], double (*Val)[7], double* z, int N)
 {
     for (int i = 0; i < N; i++) {
         z[i] = 0;
-    }
 
-    for (int i = 0; i < N; i++) {
         for (int j = 0; j < 7; j++) {
             if (Col[i][j] != -1) {
-                z[Col[i][j]] += Val[i][j] * x[i];
+                z[i] += Val[i][j] * x[Col[i][j]];
             }
         }
     }
@@ -128,13 +126,10 @@ void SpMVPar(double* x, int (*Col)[7], double (*Val)[7], double* z, int N)
     #pragma omp parallel for
     for (int i = 0; i < N; i++) {
         z[i] = 0;
-    }
 
-    #pragma omp parallel for
-    for (int i = 0; i < N; i++) {
         for (int j = 0; j < 7; j++) {
             if (Col[i][j] != -1) {
-                z[Col[i][j]] += Val[i][j] * x[i];
+                z[i] += Val[i][j] * x[Col[i][j]];
             }
         }
     }
